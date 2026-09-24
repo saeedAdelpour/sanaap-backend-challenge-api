@@ -1,16 +1,17 @@
 [project]
 name = "sanaap-backend-challenge-api"
 version = "0.1.0"
-description = "Add your description here"
+description = "Insurance document management API built with Django REST framework"
 readme = "README.md"
 authors = [
     { name = "Saeed", email = "saeed.adelpour99@gmail.com" }
 ]
 requires-python = ">=3.11"
-dependencies = []
-
-[project.scripts]
-sanaap-backend-challenge-api = "sanaap_backend_challenge_api:main"
+dependencies = [
+    "django>=5.2,<5.3",
+    "djangorestframework>=3.16,<4",
+    "python-decouple>=3.8",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.10,<0.13.0"]

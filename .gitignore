@@ -8,3 +8,13 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local configuration and runtime data
+.env
+.env.*
+!.env.example
+*.sqlite3
+*.sqlite3-*
+staticfiles/
+media/
+.vscode
