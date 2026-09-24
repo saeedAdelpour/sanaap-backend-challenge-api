@@ -76,3 +76,19 @@ def complete_upload(document_id):
     document.status = File.Status.READY
     document.save(update_fields=["storage_key", "status", "updated_at"])
     return document
+
+
+def get_download_url(document_id):
+    document = File.objects.get(pk=document_id)
+    if document.status != File.Status.READY:
+        raise ValidationError("This download cannot be completed.")
+
+    try:
+        url = get_minio_client().presigned_get_object(
+            settings.MINIO_BUCKET,
+            document.storage_key,
+            expires=timedelta(seconds=settings.MINIO_UPLOAD_URL_TTL),
+        )
+    except (MinioException, HTTPError, OSError) as exc:
+        raise StorageUnavailable from exc
+    return document, url

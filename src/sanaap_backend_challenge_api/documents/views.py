@@ -12,6 +12,7 @@ from sanaap_backend_challenge_api.documents.serializers import (
 )
 from sanaap_backend_challenge_api.documents.services import (
     complete_upload,
+    get_download_url,
     initiate_upload,
 )
 
@@ -49,3 +50,15 @@ class FileViewSet(mixins.CreateModelMixin, ReadOnlyModelViewSet):
 
     def get_queryset(self):
         return File.objects.all()
+
+    @action(detail=True, methods=["get"], url_path="download")
+    def download(self, request, *args, **kwargs):
+        document, url = get_download_url(self.get_object().pk)
+
+        return Response(
+            {
+                **FileSerializer(document).data,
+                "download_url": url,
+                "expires_in": settings.MINIO_UPLOAD_URL_TTL,
+            }
+        )
