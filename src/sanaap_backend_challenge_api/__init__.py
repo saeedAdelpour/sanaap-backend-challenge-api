@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from sanaap-backend-challenge-api!")
+"""Insurance document management API."""
