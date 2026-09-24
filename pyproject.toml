@@ -10,8 +10,10 @@ requires-python = ">=3.11"
 dependencies = [
     "django>=5.2,<5.3",
     "djangorestframework>=3.16,<4",
+    "minio>=7.2,<8",
     "psycopg[binary]>=3.1.8,<4",
     "python-decouple>=3.8",
+    "urllib3>=2,<3",
 ]
 
 [build-system]
@@ -29,4 +31,7 @@ line-length = 88
 src = ["src"]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "TID252"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
