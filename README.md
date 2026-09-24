@@ -143,3 +143,25 @@ POST    /login/ return token
     username
     password
 }
+
+## File skeleton
+
+The `documents.File` model stores a UUID, title, original filename, private
+storage key, content type, byte size, uploader, upload status, and timestamps.
+The uploader is protected from deletion while referenced by a file.
+Content type and byte size must be verified against the actual content by the
+future upload service; metadata alone does not validate a file.
+
+- `GET /api/files/`: paginated file metadata.
+- `GET /api/files/{uuid}/`: individual file metadata.
+
+Both require authentication and the `documents.view_file` permission.
+Users can see their own files; superusers can see all files. Group-based
+sharing and application admin roles will be added with RBAC.
+Storage keys are excluded from API responses.
+
+The Django admin registration is read-only until storage-aware write services
+exist. Uploads, downloads, updates, deletion, and MinIO integration remain
+unimplemented. No policy or claim relationship is assumed yet.
+
+Apply the schema with `uv run python manage.py migrate`.

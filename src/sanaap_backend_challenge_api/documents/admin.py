@@ -1,0 +1,32 @@
+from django.contrib import admin
+
+from .models import File
+
+
+@admin.register(File)
+class FileAdmin(admin.ModelAdmin):
+    list_display = ("title", "status", "uploaded_by", "size_bytes", "created_at")
+    list_filter = ("status", "content_type")
+    search_fields = ("title", "original_name")
+    list_select_related = ("uploaded_by",)
+    readonly_fields = (
+        "id",
+        "title",
+        "original_name",
+        "storage_key",
+        "content_type",
+        "size_bytes",
+        "uploaded_by",
+        "status",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
