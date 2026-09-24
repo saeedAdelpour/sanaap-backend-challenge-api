@@ -249,3 +249,36 @@ Apply migrations before using anonymous uploads:
 `MINIO_ENDPOINT` must be reachable by the client because it appears in the
 signed URL. Do not rewrite the URL hostname after signing. Browser frontends
 on another origin may also need MinIO CORS configuration.
+
+## Modify an existing file
+
+Metadata changes are immediate:
+
+```http
+PATCH /api/files/{id}/
+Content-Type: application/json
+
+{"title": "Updated policy", "original_name": "policy-renamed.pdf"}
+```
+
+Both fields are optional. Byte size, storage key, status, and uploader cannot
+be changed through this endpoint. PUT on the file detail is not implemented.
+
+To replace the content while keeping the same file ID:
+
+1. `POST /api/files/{id}/replace/` with JSON:
+   `{"original_name": "new-policy.pdf", "size_bytes": 1330}`.
+2. PUT raw bytes to the returned `upload_url`.
+3. `POST /api/files/{id}/replace/complete/` with JSON:
+   `{"replacement_id": "UUID_FROM_STEP_1"}`.
+
+The existing file remains ready and downloadable until step 3 succeeds.
+Completion updates the original filename and byte size, preserving the title
+and file ID. Repeated completion does not reapply a replacement.
+A competing replacement completed in the meantime causes a 409; start a fresh
+replacement. An ID belonging to another file returns 404.
+
+These endpoints currently require no authentication, matching the other file
+endpoints. Deletion remains unavailable. Old content and staging objects are
+retained; existing download URLs may continue serving the old content until
+expiry. Cleanup will be handled separately.

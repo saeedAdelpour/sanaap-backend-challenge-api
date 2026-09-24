@@ -7,13 +7,19 @@ from rest_framework.viewsets import ReadOnlyModelViewSet
 
 from sanaap_backend_challenge_api.documents.models import File
 from sanaap_backend_challenge_api.documents.serializers import (
+    FileReplacementCompleteSerializer,
+    FileReplacementSerializer,
     FileSerializer,
+    FileUpdateSerializer,
     FileUploadSerializer,
 )
 from sanaap_backend_challenge_api.documents.services import (
+    complete_replacement,
     complete_upload,
     get_download_url,
+    initiate_replacement,
     initiate_upload,
+    update_file_metadata,
 )
 
 
@@ -27,6 +33,12 @@ class FileViewSet(mixins.CreateModelMixin, ReadOnlyModelViewSet):
     def get_serializer_class(self):
         if self.action == "create":
             return FileUploadSerializer
+        if self.action in {"update", "partial_update"}:
+            return FileUpdateSerializer
+        if self.action == "replace":
+            return FileReplacementSerializer
+        if self.action == "complete_replacement":
+            return FileReplacementCompleteSerializer
         return FileSerializer
 
     def create(self, request, *args, **kwargs):
@@ -62,3 +74,38 @@ class FileViewSet(mixins.CreateModelMixin, ReadOnlyModelViewSet):
                 "expires_in": settings.MINIO_UPLOAD_URL_TTL,
             }
         )
+
+    def partial_update(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        document = update_file_metadata(
+            self.get_object().pk, **serializer.validated_data
+        )
+        return Response(FileSerializer(document).data)
+
+    @action(detail=True, methods=["post"], url_path="replace")
+    def replace(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        replacement, url = initiate_replacement(
+            self.get_object().pk, **serializer.validated_data
+        )
+        return Response(
+            {
+                "id": str(replacement.file_id),
+                "replacement_id": str(replacement.pk),
+                "upload_url": url,
+                "upload_method": "PUT",
+                "expires_in": settings.MINIO_UPLOAD_URL_TTL,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"], url_path="replace/complete")
+    def complete_replacement(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        document = complete_replacement(
+            self.get_object().pk, **serializer.validated_data
+        )
+        return Response(FileSerializer(document).data)

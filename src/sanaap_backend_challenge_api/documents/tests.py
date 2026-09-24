@@ -7,7 +7,7 @@ from minio.error import S3Error
 from rest_framework.test import APITestCase
 from urllib3.exceptions import HTTPError
 
-from sanaap_backend_challenge_api.documents.models import File
+from sanaap_backend_challenge_api.documents.models import File, FileReplacement
 
 
 class FileAPITests(APITestCase):
@@ -28,7 +28,7 @@ class FileAPITests(APITestCase):
         url = reverse("file-detail", args=[self.document.pk])
         self.assertEqual(self.client.get(url).status_code, 200)
         self.assertEqual(self.client.delete(url).status_code, 405)
-        self.assertEqual(self.client.patch(url, {}, format="json").status_code, 405)
+        self.assertEqual(self.client.patch(url, {}, format="json").status_code, 200)
 
     @patch("sanaap_backend_challenge_api.documents.services.get_minio_client")
     def test_anonymous_upload_returns_put_url_without_proxying_bytes(self, get_client):
@@ -123,3 +123,145 @@ class FileAPITests(APITestCase):
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, File.Status.PENDING)
         self.assertEqual(self.document.storage_key, "uploads/test-key")
+
+
+class FileModificationTests(APITestCase):
+    def setUp(self):
+        self.document = File.objects.create(
+            title="Original",
+            original_name="old.pdf",
+            size_bytes=4,
+            content_type="application/octet-stream",
+            storage_key="documents/old",
+            status=File.Status.READY,
+        )
+
+    def replacement(self, **kwargs):
+        return FileReplacement.objects.create(
+            file=self.document,
+            original_name="new.pdf",
+            size_bytes=8,
+            previous_storage_key=self.document.storage_key,
+            **kwargs,
+        )
+
+    def complete(self, replacement):
+        return self.client.post(
+            reverse("file-complete-replacement", args=[self.document.pk]),
+            {"replacement_id": str(replacement.pk)},
+            format="json",
+        )
+
+    def test_patch_changes_only_metadata(self):
+        response = self.client.patch(
+            reverse("file-detail", args=[self.document.pk]),
+            {
+                "title": "Renamed",
+                "original_name": "renamed.pdf",
+                "storage_key": "bad",
+                "size_bytes": 999,
+                "status": "failed",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.title, "Renamed")
+        self.assertEqual(self.document.original_name, "renamed.pdf")
+        self.assertEqual(self.document.storage_key, "documents/old")
+        self.assertEqual(self.document.size_bytes, 4)
+        self.assertEqual(self.document.status, File.Status.READY)
+
+    def test_blank_metadata_is_rejected(self):
+        response = self.client.patch(
+            reverse("file-detail", args=[self.document.pk]),
+            {"title": ""},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch("sanaap_backend_challenge_api.documents.services.get_minio_client")
+    def test_initiation_leaves_current_file_unchanged(self, get_client):
+        get_client.return_value.presigned_put_object.return_value = (
+            "https://storage/put"
+        )
+        response = self.client.post(
+            reverse("file-replace", args=[self.document.pk]),
+            {"original_name": "new.pdf", "size_bytes": 8},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.storage_key, "documents/old")
+        self.assertEqual(self.document.status, File.Status.READY)
+        self.assertEqual(FileReplacement.objects.count(), 1)
+
+    @patch("sanaap_backend_challenge_api.documents.services.get_minio_client")
+    def test_signing_failure_leaves_no_replacement(self, get_client):
+        get_client.return_value.presigned_put_object.side_effect = HTTPError("offline")
+        response = self.client.post(
+            reverse("file-replace", args=[self.document.pk]),
+            {"original_name": "new.pdf", "size_bytes": 8},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(FileReplacement.objects.exists())
+
+    @patch("sanaap_backend_challenge_api.documents.services.get_minio_client")
+    def test_completed_replacement_and_repeat(self, get_client):
+        replacement = self.replacement()
+        client = get_client.return_value
+        client.stat_object.return_value.size = 8
+        client.stat_object.return_value.etag = "new-etag"
+        response = self.complete(replacement)
+        self.assertEqual(response.status_code, 200)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.size_bytes, 8)
+        self.assertEqual(self.document.original_name, "new.pdf")
+        self.assertEqual(self.document.title, "Original")
+        self.assertIn(replacement.pk.hex, self.document.storage_key)
+        self.assertEqual(self.complete(replacement).status_code, 200)
+        client.copy_object.assert_called_once()
+
+    @patch("sanaap_backend_challenge_api.documents.services.get_minio_client")
+    def test_bad_size_and_storage_failure_preserve_current_file(self, get_client):
+        replacement = self.replacement()
+        client = get_client.return_value
+        client.stat_object.return_value.size = 9
+        self.assertEqual(self.complete(replacement).status_code, 400)
+        client.stat_object.return_value.size = 8
+        client.stat_object.return_value.etag = "new-etag"
+        client.copy_object.side_effect = HTTPError("offline")
+        self.assertEqual(self.complete(replacement).status_code, 503)
+        self.document.refresh_from_db()
+        replacement.refresh_from_db()
+        self.assertEqual(self.document.storage_key, "documents/old")
+        self.assertIsNone(replacement.completed_at)
+
+    @patch("sanaap_backend_challenge_api.documents.services.get_minio_client")
+    def test_competing_replacement_is_rejected(self, get_client):
+        first = self.replacement()
+        second = self.replacement()
+        client = get_client.return_value
+        client.stat_object.return_value.size = 8
+        client.stat_object.return_value.etag = "etag"
+        self.assertEqual(self.complete(first).status_code, 200)
+        self.assertEqual(self.complete(second).status_code, 409)
+        client.copy_object.assert_called_once()
+
+    def test_replacement_cannot_be_completed_for_different_file(self):
+        replacement = self.replacement()
+        other = File.objects.create(
+            title="Other",
+            original_name="other.pdf",
+            size_bytes=4,
+            content_type="application/octet-stream",
+            storage_key="documents/other",
+            status=File.Status.READY,
+        )
+        response = self.client.post(
+            reverse("file-complete-replacement", args=[other.pk]),
+            {"replacement_id": str(replacement.pk)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 404)

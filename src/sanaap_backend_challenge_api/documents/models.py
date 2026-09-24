@@ -40,3 +40,21 @@ class File(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class FileReplacement(models.Model):
+    """A pending replacement; the current document remains downloadable."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    file = models.ForeignKey(
+        File, on_delete=models.CASCADE, related_name="replacements"
+    )
+    original_name = models.CharField(max_length=255)
+    size_bytes = models.PositiveBigIntegerField()
+    previous_storage_key = models.CharField(max_length=1024)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def storage_key(self):
+        return f"uploads/{self.id.hex}"
