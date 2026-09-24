@@ -155,3 +155,7 @@ MINIO_ACCESS_KEY = config("MINIO_ACCESS_KEY", default="")
 MINIO_SECRET_KEY = config("MINIO_SECRET_KEY", default="")
 MINIO_BUCKET = config("MINIO_BUCKET", default="insurance-documents")
 MINIO_SECURE = config("MINIO_SECURE", default=True, cast=bool)
+
+MINIO_UPLOAD_URL_TTL = config("MINIO_UPLOAD_URL_TTL", default=300, cast=int)
+if not 1 <= MINIO_UPLOAD_URL_TTL <= 604800:
+    raise ImproperlyConfigured("MINIO_UPLOAD_URL_TTL must be 1–604800 seconds.")

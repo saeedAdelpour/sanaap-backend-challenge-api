@@ -26,6 +26,8 @@ class File(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="uploaded_files",
+        null=True,
+        blank=True,
     )
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.PENDING

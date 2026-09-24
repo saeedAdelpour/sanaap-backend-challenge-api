@@ -18,3 +18,9 @@ class FileSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = fields
+
+
+class FileUploadSerializer(serializers.Serializer):
+    original_name = serializers.CharField(max_length=255)
+    size_bytes = serializers.IntegerField(min_value=1, max_value=5 * 1024**3)
+    title = serializers.CharField(max_length=255, required=False)

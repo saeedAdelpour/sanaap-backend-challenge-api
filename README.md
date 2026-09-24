@@ -24,8 +24,8 @@ uv run python manage.py runserver
 
 PostgreSQL 14+ is required. API views require authentication by
 default; the liveness probe is explicitly public. Session authentication
-requires CSRF protection for unsafe requests. Token login, document operations,
-MinIO, RBAC, background jobs, and deployment configuration are not implemented yet.
+requires CSRF protection for unsafe requests. Token login, document updates/deletion,
+RBAC, background jobs, and application deployment configuration are not implemented yet.
 
 ## Database
 
@@ -155,14 +155,11 @@ future upload service; metadata alone does not validate a file.
 - `GET /api/files/`: paginated file metadata.
 - `GET /api/files/{uuid}/`: individual file metadata.
 
-Both require authentication and the `documents.view_file` permission.
-Users can see their own files; superusers can see all files. Group-based
-sharing and application admin roles will be added with RBAC.
+Both endpoints currently allow anonymous access to all file metadata.
 Storage keys are excluded from API responses.
 
 The Django admin registration is read-only until storage-aware write services
-exist. Uploads, downloads, updates, deletion, and MinIO integration remain
-unimplemented. No policy or claim relationship is assumed yet.
+exist. Downloads, updates, and deletion remain unimplemented. No policy or claim relationship is assumed yet.
 
 Apply the schema with `uv run python manage.py migrate`.
 
@@ -201,4 +198,54 @@ Data persists in the `minio_data` named volume across container restarts and
 
 When Django is containerized later, use `MINIO_ENDPOINT=minio:9000` on the
 Compose network. The File model already stores the object key; bucket and
-endpoint belong in settings. Upload/download APIs are still to be implemented.
+endpoint belong in settings. Downloads are still to be implemented.
+
+## Presigned uploads (no login required)
+
+File list, detail, upload initiation, and completion are public for now.
+The bucket itself remains private. Delete is not implemented; it will require
+authentication and execute through the server. New uploads have
+`uploaded_by=null`; existing uploader references are preserved.
+
+1. Request an upload URL:
+
+   ```sh
+   curl -X POST http://localhost:8000/api/files/ \
+     -H 'Content-Type: application/json' \
+     -d '{"original_name":"policy.pdf","size_bytes":1330,"title":"My policy"}'
+   ```
+
+   Use the actual byte size. The response contains the file `id`,
+   `status=pending`, `upload_url`, `upload_method=PUT`, and `expires_in`.
+   URLs expire after 300 seconds by default (`MINIO_UPLOAD_URL_TTL`).
+
+2. Send raw file bytes directly to the returned URL, without Django credentials:
+
+   ```sh
+   curl --fail -X PUT --upload-file ./policy.pdf 'UPLOAD_URL_FROM_RESPONSE'
+   ```
+
+3. Confirm completion:
+
+   ```sh
+   curl --fail -X POST http://localhost:8000/api/files/FILE_ID/complete/
+   ```
+
+Completion checks the uploaded size, then copies the object inside MinIO to
+a separate final key and marks it ready. File bytes never pass through Django.
+Repeated completion is idempotent. Reusing an unexpired upload URL only changes
+the staging object, not the ready document. Missing objects or size mismatches
+return 400; storage failures return 503 and can be retried.
+
+The declared size is validated on completion, not enforced during the PUT.
+This single-object flow supports up to 5 GiB. Content inspection and download
+endpoints are not implemented. Content type remains generic.
+Staging objects under `uploads/` are retained for now; lifecycle cleanup and
+abandoned pending-record cleanup remain follow-up work.
+
+Apply migrations before using anonymous uploads:
+`uv run python manage.py migrate`.
+
+`MINIO_ENDPOINT` must be reachable by the client because it appears in the
+signed URL. Do not rewrite the URL hostname after signing. Browser frontends
+on another origin may also need MinIO CORS configuration.
