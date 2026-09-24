@@ -3,7 +3,7 @@ from django.contrib.auth.models import Permission
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
-from .models import File
+from sanaap_backend_challenge_api.documents.models import File
 
 
 class FileAPITests(APITestCase):

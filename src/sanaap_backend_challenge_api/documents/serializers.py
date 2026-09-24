@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import File
+from sanaap_backend_challenge_api.documents.models import File
 
 
 class FileSerializer(serializers.ModelSerializer):

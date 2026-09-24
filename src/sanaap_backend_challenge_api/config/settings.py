@@ -148,3 +148,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
 }
+
+# Local HTTP is explicitly enabled in .env; other environments default to TLS.
+MINIO_ENDPOINT = config("MINIO_ENDPOINT", default="localhost:9000")
+MINIO_ACCESS_KEY = config("MINIO_ACCESS_KEY", default="")
+MINIO_SECRET_KEY = config("MINIO_SECRET_KEY", default="")
+MINIO_BUCKET = config("MINIO_BUCKET", default="insurance-documents")
+MINIO_SECURE = config("MINIO_SECURE", default=True, cast=bool)

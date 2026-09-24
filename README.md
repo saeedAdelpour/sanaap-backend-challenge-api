@@ -165,3 +165,40 @@ exist. Uploads, downloads, updates, deletion, and MinIO integration remain
 unimplemented. No policy or claim relationship is assumed yet.
 
 Apply the schema with `uv run python manage.py migrate`.
+
+## Local MinIO
+
+MinIO runs in Docker while Django continues to run with uv. PostgreSQL remains
+the existing external service. The pinned community image is for local development;
+the upstream community repository is archived, so reassess the distribution
+before production deployment.
+
+Set the `MINIO_*` values from `.env.example` in your local `.env`.
+Generate a secret for `MINIO_SECRET_KEY`, for example with
+`uv run python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+The initial local setup already generated one in this checkout.
+
+```sh
+docker compose up -d --wait minio
+uv run python manage.py init_minio
+```
+
+- S3 endpoint: http://localhost:9000
+- Console: http://localhost:9001 (log in with the local MinIO access/secret keys)
+- Bucket: `insurance-documents`
+
+The initialization command is repeatable and creates a bucket without public
+access. It refuses existing bucket policies for manual review. No bucket is
+created automatically during Django startup.
+
+Compose uses the configured keys as MinIO root credentials for local development.
+Use a separate bucket-scoped application identity in production. Never publish
+these credentials or grant anonymous access to insurance documents.
+`MINIO_SECURE=false` is for local HTTP only; the settings default to TLS.
+
+Data persists in the `minio_data` named volume across container restarts and
+`docker compose down`. `docker compose down -v` deletes that stored data.
+
+When Django is containerized later, use `MINIO_ENDPOINT=minio:9000` on the
+Compose network. The File model already stores the object key; bucket and
+endpoint belong in settings. Upload/download APIs are still to be implemented.

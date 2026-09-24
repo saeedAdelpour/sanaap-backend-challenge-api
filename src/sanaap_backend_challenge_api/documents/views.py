@@ -1,8 +1,8 @@
 from rest_framework.permissions import DjangoModelPermissions
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
-from .models import File
-from .serializers import FileSerializer
+from sanaap_backend_challenge_api.documents.models import File
+from sanaap_backend_challenge_api.documents.serializers import FileSerializer
 
 
 class FilePermissions(DjangoModelPermissions):
@@ -19,10 +19,11 @@ class FileViewSet(ReadOnlyModelViewSet):
 
     serializer_class = FileSerializer
     permission_classes = [FilePermissions]
-    queryset = File.objects.all()
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        if self.request.user.is_superuser:
-            return queryset
-        return queryset.filter(uploaded_by=self.request.user)
+        user = self.request.user
+        if not user.is_authenticated:
+            return File.objects.none()
+        if user.is_superuser:
+            return File.objects.all()
+        return File.objects.filter(uploaded_by=user)

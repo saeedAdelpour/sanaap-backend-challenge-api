@@ -3,7 +3,7 @@
 from django.contrib import admin
 from django.urls import include, path
 
-from .views import health
+from sanaap_backend_challenge_api.config.views import health
 
 urlpatterns = [
     path("api/", include("sanaap_backend_challenge_api.documents.urls")),

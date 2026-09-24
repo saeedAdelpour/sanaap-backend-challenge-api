@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import File
+from sanaap_backend_challenge_api.documents.models import File
 
 
 @admin.register(File)

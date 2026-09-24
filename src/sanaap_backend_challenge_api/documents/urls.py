@@ -1,6 +1,6 @@
 from rest_framework.routers import DefaultRouter
 
-from .views import FileViewSet
+from sanaap_backend_challenge_api.documents.views import FileViewSet
 
 router = DefaultRouter()
 router.register("files", FileViewSet, basename="file")
