@@ -12,6 +12,7 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 uv sync --locked
 cp .env.example .env
 uv run pre-commit install
+# Set POSTGRES_* in .env to match your PostgreSQL database and role.
 uv run python manage.py migrate
 uv run python manage.py createsuperuser
 uv run python manage.py runserver
@@ -21,10 +22,20 @@ uv run python manage.py runserver
 - Browsable API session login: http://127.0.0.1:8000/api-auth/login/
 - Public liveness check: http://127.0.0.1:8000/api/health/
 
-SQLite is used for local development. API views require authentication by
+PostgreSQL 14+ is required. API views require authentication by
 default; the liveness probe is explicitly public. Session authentication
 requires CSRF protection for unsafe requests. Token login, document operations,
 MinIO, RBAC, background jobs, and deployment configuration are not implemented yet.
+
+## Database
+
+Configure `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` in `.env`.
+The server defaults to `localhost:5432`; override `POSTGRES_HOST` and
+`POSTGRES_PORT` as needed. The database and login role must already exist,
+and the role must have permission to create tables in the database schema.
+
+Run `uv run python manage.py migrate` to initialize the database.
+Existing SQLite data is not automatically copied to PostgreSQL.
 
 ## Dependency workflow
 
