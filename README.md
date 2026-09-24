@@ -11,6 +11,7 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 ```sh
 uv sync --locked
 cp .env.example .env
+uv run pre-commit install
 uv run python manage.py migrate
 uv run python manage.py createsuperuser
 uv run python manage.py runserver
@@ -38,6 +39,27 @@ Commit both `pyproject.toml` and `uv.lock`. Do not commit `.venv/`, `.env`,
 or the local database. Use `uv run` rather than installing packages with pip;
 manual virtual environment activation is unnecessary. `--locked` rejects a
 stale lockfile rather than silently changing dependency resolution.
+
+## Pre-commit
+
+Install hooks once per clone with `uv run pre-commit install` after
+`uv sync --locked`. Hooks run on staged files at commit time:
+
+- Ruff linting (including import sorting) and formatting.
+- File checks for whitespace, missing final newlines, YAML/TOML syntax,
+  merge conflicts, filename case conflicts, large files, and private keys.
+- Bandit security analysis of Python files.
+
+Run all tracked files manually:
+
+```sh
+uv run pre-commit run --all-files
+```
+
+If a hook changes files, review and stage the changes, then rerun.
+Hook tools use isolated environments with versions pinned in
+`.pre-commit-config.yaml`; first use requires network access.
+Update those versions intentionally with `uv run pre-commit autoupdate`.
 
 ## Checks
 
