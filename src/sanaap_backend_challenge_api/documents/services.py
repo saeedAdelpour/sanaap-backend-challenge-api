@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
+from django.utils.http import content_disposition_header
 from minio.commonconfig import CopySource
 from minio.error import MinioException, S3Error
 from rest_framework.exceptions import APIException, ValidationError
@@ -19,6 +20,7 @@ class StorageUnavailable(APIException):
 
 
 def initiate_upload(*, original_name, size_bytes, title=None):
+    # FIXME: didn't store uploaded_by
     document = File(
         title=title or original_name,
         original_name=original_name,
@@ -88,6 +90,11 @@ def get_download_url(document_id):
             settings.MINIO_BUCKET,
             document.storage_key,
             expires=timedelta(seconds=settings.MINIO_UPLOAD_URL_TTL),
+            response_headers={
+                "response-content-disposition": content_disposition_header(
+                    as_attachment=True, filename=document.original_name
+                ),
+            },
         )
     except (MinioException, HTTPError, OSError) as exc:
         raise StorageUnavailable from exc
