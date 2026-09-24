@@ -47,7 +47,9 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework.authtoken",
     "sanaap_backend_challenge_api.documents.apps.DocumentsConfig",
+    "django_extensions",
 ]
+SHELL_PLUS = "ipython"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
