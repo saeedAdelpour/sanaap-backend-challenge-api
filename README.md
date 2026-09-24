@@ -24,7 +24,7 @@ uv run python manage.py runserver
 
 PostgreSQL 14+ is required. API views require authentication by
 default; the liveness probe is explicitly public. Session authentication
-requires CSRF protection for unsafe requests. Token login, document updates/deletion,
+requires CSRF protection for unsafe requests. Document deletion,
 RBAC, background jobs, and application deployment configuration are not implemented yet.
 
 ## Database
@@ -155,7 +155,7 @@ future upload service; metadata alone does not validate a file.
 - `GET /api/files/`: paginated file metadata.
 - `GET /api/files/{uuid}/`: individual file metadata.
 
-Both endpoints currently allow anonymous access to all file metadata.
+Both endpoints require a DRF token. Authenticated users can currently access all file metadata; role checks are not implemented.
 Storage keys are excluded from API responses.
 
 The Django admin registration is read-only until storage-aware write services
@@ -200,12 +200,11 @@ When Django is containerized later, use `MINIO_ENDPOINT=minio:9000` on the
 Compose network. The File model already stores the object key; bucket and
 endpoint belong in settings. Downloads are still to be implemented.
 
-## Presigned uploads (no login required)
+## Presigned uploads
 
-File list, detail, upload initiation, and completion are public for now.
-The bucket itself remains private. Delete is not implemented; it will require
-authentication and execute through the server. New uploads have
-`uploaded_by=null`; existing uploader references are preserved.
+File endpoints require token authentication (see below). The bucket remains
+private. Delete is not implemented. New uploads record the authenticated user
+in `uploaded_by`; existing anonymous uploads keep their null uploader.
 
 1. Request an upload URL:
 
@@ -243,7 +242,7 @@ endpoints are not implemented. Content type remains generic.
 Staging objects under `uploads/` are retained for now; lifecycle cleanup and
 abandoned pending-record cleanup remain follow-up work.
 
-Apply migrations before using anonymous uploads:
+Apply migrations before using the API:
 `uv run python manage.py migrate`.
 
 `MINIO_ENDPOINT` must be reachable by the client because it appears in the
@@ -278,7 +277,37 @@ and file ID. Repeated completion does not reapply a replacement.
 A competing replacement completed in the meantime causes a 409; start a fresh
 replacement. An ID belonging to another file returns 404.
 
-These endpoints currently require no authentication, matching the other file
-endpoints. Deletion remains unavailable. Old content and staging objects are
+These endpoints require token authentication, matching the other file endpoints. Deletion remains unavailable. Old content and staging objects are
 retained; existing download URLs may continue serving the old content until
 expiry. Cleanup will be handled separately.
+
+## Token authentication
+
+Create a user with `uv run python manage.py createsuperuser`, or use an existing
+active Django user. Obtain a DRF token:
+
+```http
+POST /api/login/
+Content-Type: application/json
+
+{"username": "your-username", "password": "your-password"}
+```
+
+The response is `{"token": "..."}`. Include it on every Django file API request:
+
+```http
+Authorization: Token YOUR_TOKEN
+```
+
+In Postman, add this header manually (the prefix is `Token`, not `Bearer`).
+File endpoints require a token even when you are logged into Django admin.
+Token-authenticated requests do not need CSRF tokens. Django admin continues
+to use session authentication. The health endpoint remains public.
+
+Do not send the Django token when uploading/downloading directly through a
+MinIO presigned URL; that URL already authorizes the transfer.
+
+Tokens are database-backed, one per user, and do not expire automatically.
+They can be revoked by deleting their entry in Django admin. Use HTTPS for
+deployed login and API endpoints. Authentication identifies users; role and
+file-level access restrictions are still pending.

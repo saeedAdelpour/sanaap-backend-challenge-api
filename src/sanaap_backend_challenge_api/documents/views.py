@@ -1,7 +1,8 @@
 from django.conf import settings
 from rest_framework import mixins, status
+from rest_framework.authentication import TokenAuthentication
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
@@ -24,11 +25,11 @@ from sanaap_backend_challenge_api.documents.services import (
 
 
 class FileViewSet(mixins.CreateModelMixin, ReadOnlyModelViewSet):
-    """Public metadata and presigned uploads. Deletion is not implemented."""
+    """Token-authenticated metadata and presigned uploads. Deletion is not implemented."""
 
     serializer_class = FileSerializer
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -44,7 +45,10 @@ class FileViewSet(mixins.CreateModelMixin, ReadOnlyModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        document, upload_url = initiate_upload(**serializer.validated_data)
+        document, upload_url = initiate_upload(
+            **serializer.validated_data,
+            uploaded_by=request.user,
+        )
         return Response(
             {
                 **FileSerializer(document).data,

@@ -1,9 +1,12 @@
 from datetime import timedelta
 from unittest.mock import patch
+from uuid import uuid4
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.urls import reverse
 from minio.error import S3Error
+from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 from urllib3.exceptions import HTTPError
 
@@ -12,6 +15,9 @@ from sanaap_backend_challenge_api.documents.models import File, FileReplacement
 
 class FileAPITests(APITestCase):
     def setUp(self):
+        self.user = get_user_model().objects.create_user(username="api-user")
+        token = Token.objects.create(user=self.user)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
         self.document = File.objects.create(
             title="Policy",
             original_name="policy.pdf",
@@ -20,7 +26,7 @@ class FileAPITests(APITestCase):
             size_bytes=4,
         )
 
-    def test_public_metadata_and_no_delete(self):
+    def test_authenticated_metadata_and_no_delete(self):
         response = self.client.get(reverse("file-list"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 1)
@@ -31,7 +37,9 @@ class FileAPITests(APITestCase):
         self.assertEqual(self.client.patch(url, {}, format="json").status_code, 200)
 
     @patch("sanaap_backend_challenge_api.documents.services.get_minio_client")
-    def test_anonymous_upload_returns_put_url_without_proxying_bytes(self, get_client):
+    def test_authenticated_upload_returns_put_url_without_proxying_bytes(
+        self, get_client
+    ):
         get_client.return_value.presigned_put_object.return_value = (
             "https://storage/upload"
         )
@@ -42,7 +50,7 @@ class FileAPITests(APITestCase):
         )
         self.assertEqual(response.status_code, 201)
         document = File.objects.get(pk=response.data["id"])
-        self.assertIsNone(document.uploaded_by)
+        self.assertEqual(document.uploaded_by, self.user)
         self.assertEqual(document.status, File.Status.PENDING)
         self.assertEqual(response.data["upload_method"], "PUT")
         self.assertEqual(response.data["upload_url"], "https://storage/upload")
@@ -127,6 +135,9 @@ class FileAPITests(APITestCase):
 
 class FileModificationTests(APITestCase):
     def setUp(self):
+        self.user = get_user_model().objects.create_user(username="api-user")
+        token = Token.objects.create(user=self.user)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
         self.document = File.objects.create(
             title="Original",
             original_name="old.pdf",
@@ -265,3 +276,59 @@ class FileModificationTests(APITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 404)
+
+
+class TokenAuthenticationTests(APITestCase):
+    def setUp(self):
+        self.password = uuid4().hex
+        self.user = get_user_model().objects.create_user(
+            username="login-user", password=self.password
+        )
+
+    def test_login_token_authenticates_file_api(self):
+        response = self.client.post(
+            reverse("api-login"),
+            {"username": self.user.username, "password": self.password},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {response.data['token']}")
+        self.assertEqual(self.client.get(reverse("file-list")).status_code, 200)
+
+    def test_invalid_login_does_not_issue_token(self):
+        response = self.client.post(
+            reverse("api-login"),
+            {"username": self.user.username, "password": uuid4().hex},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Token.objects.exists())
+
+    def test_all_file_actions_require_token(self):
+        file_id = uuid4()
+        endpoints = [
+            ("get", reverse("file-list")),
+            ("post", reverse("file-list")),
+            ("get", reverse("file-detail", args=[file_id])),
+            ("patch", reverse("file-detail", args=[file_id])),
+            ("get", reverse("file-download", args=[file_id])),
+            ("post", reverse("file-complete", args=[file_id])),
+            ("post", reverse("file-replace", args=[file_id])),
+            ("post", reverse("file-complete-replacement", args=[file_id])),
+        ]
+        for method, url in endpoints:
+            with self.subTest(method=method, url=url):
+                self.assertEqual(getattr(self.client, method)(url).status_code, 401)
+
+    def test_invalid_and_inactive_tokens_are_rejected(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {uuid4().hex}")
+        self.assertEqual(self.client.get(reverse("file-list")).status_code, 401)
+        token = Token.objects.create(user=self.user)
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+        self.assertEqual(self.client.get(reverse("file-list")).status_code, 401)
+
+    def test_session_cookie_alone_does_not_authenticate_file_api(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse("file-list")).status_code, 401)

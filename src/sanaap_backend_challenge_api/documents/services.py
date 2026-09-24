@@ -21,14 +21,14 @@ class StorageUnavailable(APIException):
     default_code = "storage_unavailable"
 
 
-def initiate_upload(*, original_name, size_bytes, title=None):
-    # FIXME: didn't store uploaded_by
+def initiate_upload(*, original_name, size_bytes, uploaded_by, title=None):
     document = File(
         title=title or original_name,
         original_name=original_name,
         storage_key=f"uploads/{uuid4().hex}",
         content_type="application/octet-stream",
         size_bytes=size_bytes,
+        uploaded_by=uploaded_by,
     )
     try:
         url = get_minio_client().presigned_put_object(
