@@ -12,6 +12,7 @@ dependencies = [
     "django-extensions>=4.1",
     "django-filter>=25.2,<26",
     "djangorestframework>=3.16,<4",
+    "drf-spectacular[sidecar]>=0.29,<0.30",
     "gunicorn>=23,<24",
     "ipython>=9.17.1",
     "minio>=7.2,<8",
