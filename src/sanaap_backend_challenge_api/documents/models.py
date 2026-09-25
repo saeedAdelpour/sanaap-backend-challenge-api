@@ -67,6 +67,11 @@ class FileReplacement(models.Model):
     original_name = models.CharField(max_length=255)
     size_bytes = models.PositiveBigIntegerField()
     previous_storage_key = models.CharField(max_length=1024)
+    replaced_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="file_replacements",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 

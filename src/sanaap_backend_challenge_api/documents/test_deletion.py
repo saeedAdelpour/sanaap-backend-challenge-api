@@ -82,7 +82,10 @@ class DeletionTests(APITestCase):
             lambda: services.get_download_url(self.document.pk),
             lambda: services.update_file_metadata(self.document.pk, title="changed"),
             lambda: services.initiate_replacement(
-                self.document.pk, original_name="new", size_bytes=4
+                self.document.pk,
+                original_name="new",
+                size_bytes=4,
+                replaced_by=self.user,
             ),
             lambda: services.complete_replacement(
                 self.document.pk, replacement_id=self.document.pk

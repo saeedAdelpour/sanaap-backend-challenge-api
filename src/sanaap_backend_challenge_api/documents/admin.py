@@ -7,6 +7,7 @@ from sanaap_backend_challenge_api.documents.models import File, FileReplacement
 class FileAdmin(admin.ModelAdmin):
     list_display = (
         "title",
+        "original_name",
         "status",
         "uploaded_by",
         "size_bytes",
@@ -34,12 +35,6 @@ class FileAdmin(admin.ModelAdmin):
         "purged_at",
     )
 
-    def has_add_permission(self, request):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
-
 
 @admin.register(FileReplacement)
 class FileReplacementAdmin(admin.ModelAdmin):
@@ -47,13 +42,17 @@ class FileReplacementAdmin(admin.ModelAdmin):
         "id",
         "file",
         "original_name",
+        "replaced_by",
         "size_bytes",
         "created_at",
         "completed_at",
     )
     list_filter = ("created_at", "completed_at")
     search_fields = ("original_name", "file__title", "file__original_name")
-    list_select_related = ("file",)
+    list_select_related = (
+        "file",
+        "replaced_by",
+    )
     readonly_fields = (
         "id",
         "file",
@@ -61,15 +60,7 @@ class FileReplacementAdmin(admin.ModelAdmin):
         "size_bytes",
         "storage_key",
         "previous_storage_key",
+        "replaced_by",
         "created_at",
         "completed_at",
     )
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False

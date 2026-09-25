@@ -201,7 +201,7 @@ class FileModificationTests(APITestCase):
         )
         response = self.client.post(
             reverse("file-replace", args=[self.document.pk]),
-            {"original_name": "new.pdf", "size_bytes": 8},
+            {"original_name": "new.pdf", "size_bytes": 8, "replaced_by": 999},
             format="json",
         )
         self.assertEqual(response.status_code, 201)
@@ -209,6 +209,7 @@ class FileModificationTests(APITestCase):
         self.assertEqual(self.document.storage_key, "documents/old")
         self.assertEqual(self.document.status, File.Status.READY)
         self.assertEqual(FileReplacement.objects.count(), 1)
+        self.assertEqual(FileReplacement.objects.get().replaced_by, self.user)
 
     @patch("sanaap_backend_challenge_api.documents.services.get_minio_client")
     def test_signing_failure_leaves_no_replacement(self, get_client):

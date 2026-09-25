@@ -131,7 +131,7 @@ def update_file_metadata(document_id, **changes):
 
 
 @transaction.atomic
-def initiate_replacement(document_id, *, original_name, size_bytes):
+def initiate_replacement(document_id, *, original_name, size_bytes, replaced_by):
     document = get_object_or_404(
         File.objects.select_for_update(), pk=document_id, deleted_at__isnull=True
     )
@@ -142,6 +142,7 @@ def initiate_replacement(document_id, *, original_name, size_bytes):
         original_name=original_name,
         size_bytes=size_bytes,
         previous_storage_key=document.storage_key,
+        replaced_by=replaced_by,
     )
     try:
         url = get_minio_client().presigned_put_object(
