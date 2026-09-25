@@ -1,14 +1,68 @@
 services:
+  postgres:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - static_data:/app/staticfiles
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/', timeout=5)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  nginx:
+    image: nginx:1.28-alpine
+    env_file: .env
+    restart: unless-stopped
+    ports:
+      - target: ${NGINX_PORT:?Set NGINX_PORT in .env} # Port Nginx listens on inside the container
+        published: "${HTTP_PORT:?Set HTTP_PORT in .env}" # Port on your machine
+        host_ip: "${HTTP_BIND_ADDRESS:?Set HTTP_BIND_ADDRESS in .env}" # Address on your machine
+        protocol: ${HTTP_PROTOCOL:?Set HTTP_PROTOCOL in .env}
+    volumes:
+      - ./docker/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - static_data:/app/staticfiles:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:${NGINX_PORT:?Set NGINX_PORT in .env}/api/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   minio:
+    env_file: .env
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address ":9001"
     restart: unless-stopped
     ports:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY in .env}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY in .env}
     volumes:
       - minio_data:/data
     healthcheck:
@@ -19,4 +73,6 @@ services:
       start_period: 10s
 
 volumes:
+  postgres_data:
+  static_data:
   minio_data:
