@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
 from sanaap_backend_challenge_api.documents.models import File
+from sanaap_backend_challenge_api.documents.permissions import FilePermission
 from sanaap_backend_challenge_api.documents.serializers import (
     FileReplacementCompleteSerializer,
     FileReplacementSerializer,
@@ -29,7 +30,7 @@ class FileViewSet(mixins.CreateModelMixin, ReadOnlyModelViewSet):
 
     serializer_class = FileSerializer
     authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, FilePermission]
 
     def get_serializer_class(self):
         if self.action == "create":

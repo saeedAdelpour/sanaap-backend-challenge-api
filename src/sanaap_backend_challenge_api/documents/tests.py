@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group, Permission
 from django.urls import reverse
 from minio.error import S3Error
 from rest_framework.authtoken.models import Token
@@ -16,6 +17,7 @@ from sanaap_backend_challenge_api.documents.models import File, FileReplacement
 class FileAPITests(APITestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="api-user")
+        self.user.groups.add(Group.objects.get(name="Editor"))
         token = Token.objects.create(user=self.user)
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
         self.document = File.objects.create(
@@ -136,6 +138,7 @@ class FileAPITests(APITestCase):
 class FileModificationTests(APITestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="api-user")
+        self.user.groups.add(Group.objects.get(name="Editor"))
         token = Token.objects.create(user=self.user)
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
         self.document = File.objects.create(
@@ -286,6 +289,7 @@ class TokenAuthenticationTests(APITestCase):
         )
 
     def test_login_token_authenticates_file_api(self):
+        self.user.groups.add(Group.objects.get(name="Viewer"))
         response = self.client.post(
             reverse("api-login"),
             {"username": self.user.username, "password": self.password},
@@ -332,3 +336,126 @@ class TokenAuthenticationTests(APITestCase):
     def test_session_cookie_alone_does_not_authenticate_file_api(self):
         self.client.force_login(self.user)
         self.assertEqual(self.client.get(reverse("file-list")).status_code, 401)
+
+
+class FileGroupPermissionTests(APITestCase):
+    def test_group_permissions_are_inherited(self):
+        expected = {
+            "Admin": {
+                "upload_file",
+                "replace_file",
+                "download_file",
+                "destroy_file",
+                "change_file",
+                "view_file",
+            },
+            "Editor": {
+                "upload_file",
+                "replace_file",
+                "download_file",
+                "change_file",
+                "view_file",
+            },
+            "Viewer": {"download_file", "view_file"},
+        }
+        for role, codenames in expected.items():
+            with self.subTest(role=role):
+                user = get_user_model().objects.create_user(username=role)
+                user.groups.add(Group.objects.get(name=role))
+                self.assertEqual(
+                    user.get_all_permissions(),
+                    {f"documents.{codename}" for codename in codenames},
+                )
+                self.assertFalse(user.user_permissions.exists())
+
+    @patch("sanaap_backend_challenge_api.documents.services.get_minio_client")
+    def test_create_checks_inherited_upload_permission(self, get_client):
+        get_client.return_value.presigned_put_object.return_value = (
+            "https://storage/put"
+        )
+        for role, expected_status in (
+            ("Admin", 201),
+            ("Editor", 201),
+            ("Viewer", 403),
+            (None, 403),
+        ):
+            with self.subTest(role=role):
+                user = get_user_model().objects.create_user(username=role or "no-group")
+                if role:
+                    user.groups.add(Group.objects.get(name=role))
+                token = Token.objects.create(user=user)
+                self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+                get_client.reset_mock()
+                count = File.objects.count()
+                response = self.client.post(
+                    reverse("file-list"),
+                    {"original_name": "test.pdf", "size_bytes": 4},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, expected_status)
+                if expected_status == 403:
+                    get_client.assert_not_called()
+                    self.assertEqual(File.objects.count(), count)
+
+    @patch("sanaap_backend_challenge_api.documents.services.get_minio_client")
+    def test_groups_control_all_remaining_file_actions(self, get_client):
+        document = File.objects.create(
+            title="Policy",
+            original_name="policy.pdf",
+            storage_key="documents/policy",
+            content_type="application/pdf",
+            size_bytes=4,
+            status=File.Status.READY,
+        )
+        get_client.return_value.presigned_get_object.return_value = (
+            "https://storage/get"
+        )
+        for role in ("Admin", "Editor", "Viewer", None):
+            user = get_user_model().objects.create_user(username=role or "no-group")
+            if role:
+                user.groups.add(Group.objects.get(name=role))
+            token = Token.objects.create(user=user)
+            self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+            can_read = role is not None
+            can_write = role in ("Admin", "Editor")
+            endpoints = [
+                ("get", "file-list", [], 200 if can_read else 403),
+                ("head", "file-list", [], 200 if can_read else 403),
+                ("options", "file-list", [], 200 if can_read else 403),
+                ("get", "file-detail", [document.pk], 200 if can_read else 403),
+                ("get", "file-download", [document.pk], 200 if can_read else 403),
+                ("patch", "file-detail", [document.pk], 200 if can_write else 403),
+                ("post", "file-complete", [document.pk], 200 if can_write else 403),
+                ("post", "file-replace", [document.pk], 400 if can_write else 403),
+                (
+                    "post",
+                    "file-complete-replacement",
+                    [document.pk],
+                    400 if can_write else 403,
+                ),
+            ]
+            for method, name, args, expected in endpoints:
+                with self.subTest(role=role, method=method, endpoint=name):
+                    response = getattr(self.client, method)(reverse(name, args=args))
+                    self.assertEqual(response.status_code, expected)
+
+    def test_view_permission_does_not_grant_download_or_write_access(self):
+        user = get_user_model().objects.create_user(username="metadata-only")
+        user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="documents", codename="view_file"
+            )
+        )
+        token = Token.objects.create(user=user)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {token.key}")
+        self.assertEqual(self.client.get(reverse("file-list")).status_code, 200)
+        for method, name in (
+            ("get", "file-download"),
+            ("patch", "file-detail"),
+            ("post", "file-complete"),
+            ("post", "file-replace"),
+            ("post", "file-complete-replacement"),
+        ):
+            with self.subTest(endpoint=name):
+                response = getattr(self.client, method)(reverse(name, args=[uuid4()]))
+                self.assertEqual(response.status_code, 403)
