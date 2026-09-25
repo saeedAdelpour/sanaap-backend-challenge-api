@@ -37,6 +37,12 @@ class File(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        permissions = [
+            ("upload_file", "Can upload files"),
+            ("replace_file", "Can replace files"),
+            ("download_file", "Can download files"),
+            ("destroy_file", "Can destroy files"),
+        ]
 
     def __str__(self):
         return self.title
