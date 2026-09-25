@@ -7,13 +7,6 @@ selected in `.python-version`. Application code lives in
 ## Docker setup
 
 Builds require BuildKit and the Docker Buildx plugin (`docker buildx version`).
-You can enable BuildKit explicitly with `export DOCKER_BUILDKIT=1` in your shell.
-Dependencies are installed in a separate cached layer before source code and
-README are copied. Both `uv sync` steps share a persistent download cache, so
-changes to `pyproject.toml` or `uv.lock` can reuse cached packages. The download
-cache stays outside the image; installed dependencies remain in `/app/.venv`.
-The first build populates the cache. Avoid `--no-cache` for normal rebuilds so
-Docker can also reuse its completed layers.
 
 Copy `.env.example` to `.env` if you do not already have one. Set
 `POSTGRES_PASSWORD`, `MINIO_SECRET_KEY` (at least eight characters), and a unique
@@ -34,20 +27,9 @@ before Gunicorn starts. PostgreSQL and MinIO must be healthy before the backend
 starts; Nginx waits for the backend health check. The health endpoint checks
 liveness only, not ongoing database or storage availability.
 
-`HTTP_PORT` changes the published API port; the example sets `HTTP_BIND_ADDRESS`
-to `127.0.0.1`. `NGINX_PORT=80` sets the container port, Nginx listener, and
-health-check port together. `HTTP_PROTOCOL=tcp` selects the transport; keep TCP
-for this HTTP configuration. Nginx generates its config from
-`docker/nginx/default.conf.template` at startup. Only Nginx and the existing local MinIO ports are published;
-PostgreSQL and Gunicorn are accessible within the Compose network.
-PostgreSQL, the backend, MinIO, and Nginx load all service environment variables from
-`.env` using `env_file`, with no inline `environment` overrides. The example uses
-`DJANGO_DEBUG=false`, `POSTGRES_HOST=postgres`, and `MINIO_ENDPOINT=minio:9000`
-for Docker networking. MinIO's `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` expand
-from the application credentials in the same file, so edit `MINIO_ACCESS_KEY`
-and `MINIO_SECRET_KEY` to keep them synchronized. All four services receive the
-file's variables. Your `.env` is supplied at runtime and excluded from the image. Dependencies are installed from `uv.lock` using
-[uv's Docker workflow](https://docs.astral.sh/uv/guides/integration/docker/).
+Docker services load their configuration from `.env`. The example uses
+`POSTGRES_HOST=postgres` and `MINIO_ENDPOINT=minio:9000` for Docker networking.
+`HTTP_PORT` sets the published API port. Only Nginx and MinIO expose host ports.
 
 MinIO remains available at http://localhost:9000 and its console at
 http://localhost:9001. `MINIO_ENDPOINT=minio:9000` is used internally, while
@@ -111,9 +93,6 @@ then click **Authorize** and enter `Token YOUR_TOKEN` (including the prefix).
 You can now try the file endpoints. Upload raw bytes to the returned MinIO URL
 separately, then use the completion endpoint in Swagger.
 
-Swagger assets are bundled locally and served through Django static files
-(Nginx in Docker). Rebuild Docker after installing the new dependencies.
-
 Validate or export the schema:
 
 ```sh
@@ -129,7 +108,6 @@ the database and role. For an external PostgreSQL service, create them yourself
 and give the role permission to create tables in the database schema.
 
 Run `uv run python manage.py migrate` to initialize the database.
-Existing SQLite data is not automatically copied to PostgreSQL.
 
 ## Dependency workflow
 
@@ -181,70 +159,55 @@ server and example environment are for local use only.
 
 ## Original project brief
 
-we want to design api for upload insurance documents
+Design an API for uploading and managing insurance documents.
 
+### Functional requirements
 
-# functional requirements
+- Users can authenticate and view, upload, and update files.
+- Admins have full access to all files.
+- Editors can upload and update files, but cannot delete them.
+- Viewers can view files.
+- File URLs must be secure.
+- Users can filter and select files.
+- Files must be deleted securely.
 
-- user can view/update/upload a file
-- user can authenticate
-- admin user has full access to all files
-- editor user can upload and update file, but not delete
-- viewer user can view file
-- file url must be secure
-- user can filter by file and choose what file wants
-- files must be remove secure
- - what is secure? soft delete?
+### Non-functional requirements
 
-# non-functional requirements
-- must use MinIO for object storage
-- RBAC
-- tests (unit/integration/e2e)
-- api swagger
-- complete readme file
-- dockerize
-    - ci/cd: github action
-    - use nginx + gunicorn
-- background tasks for file upload
-- audit log for files
-- websocket (saeed: or sse) for notify all users that a file uploaded
+- MinIO object storage.
+- Role-based access control (RBAC).
+- Unit, integration, and end-to-end tests.
+- Swagger API documentation.
+- Complete README.
+- Docker deployment with Nginx and Gunicorn.
+- CI/CD with GitHub Actions.
+- Background tasks for file uploads.
+- File audit logs.
+- Upload notifications through WebSockets or SSE.
 
-# core entities
-user
-file
+### Core entities
 
+- User
+- File
 
-# api
-GET     /file/
+### API
 
-GET     /file/<:file_id> return {url}
+The original API outline:
 
-POST    /file/
-{
-    action: upload
-    ???
-}
-return {file_id, pre_sign_url}
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/file/` | List files. |
+| GET | `/file/{file_id}/` | Return a file URL. |
+| POST | `/file/` | Request an upload or update and receive a presigned URL. |
+| POST | `/login/` | Authenticate with a username and password and return a token. |
 
-POST    /file/
-{
-    file_id
-    action: update
-}
+The implemented endpoints use `/api/` and are documented in Swagger and below.
 
-POST    /login/ return token
-{
-    username
-    password
-}
-
-## File skeleton
+## Files
 
 The `documents.File` model stores a UUID, title, original filename, private
 storage key, content type, byte size, uploader, upload status, and timestamps.
 The uploader is protected from deletion while referenced by a file.
-Content type and byte size must be verified against the actual content by the
-future upload service; metadata alone does not validate a file.
+Upload completion verifies byte size; content inspection is not implemented.
 
 - `GET /api/files/`: paginated file metadata.
 - `GET /api/files/{uuid}/`: individual file metadata.
@@ -252,22 +215,19 @@ future upload service; metadata alone does not validate a file.
 Both endpoints require a DRF token. Users with the view permission can access file metadata.
 Storage keys are excluded from API responses.
 
-The Django admin registration is read-only until storage-aware write services
-exist. Downloads, metadata updates, replacement, and soft deletion use API services. No policy or claim relationship is assumed yet.
+File and replacement fields are read-only in Django admin. Use the API for
+uploads, downloads, metadata updates, content replacement, and soft deletion.
 
 Apply the schema with `uv run python manage.py migrate`.
 
 ## Local MinIO
 
 For the host-based setup, run only MinIO in Docker and run Django with uv
-against your external PostgreSQL service. The full container setup is above. The pinned community image is for local development;
-the upstream community repository is archived, so reassess the distribution
-before production deployment.
+against your external PostgreSQL service. The full container setup is above.
 
 Set the `MINIO_*` values from `.env.example` in your local `.env`.
 Generate a secret for `MINIO_SECRET_KEY`, for example with
 `uv run python -c "import secrets; print(secrets.token_urlsafe(32))"`.
-The initial local setup already generated one in this checkout.
 
 ```sh
 docker compose up -d --wait minio
@@ -298,12 +258,13 @@ stores the object key; bucket and endpoints belong in settings.
 
 File endpoints require token authentication (see below). The bucket remains
 private. Deletion is described below. New uploads record the authenticated user
-in `uploaded_by`; existing anonymous uploads keep their null uploader.
+in `uploaded_by`.
 
 1. Request an upload URL:
 
    ```sh
    curl -X POST http://localhost:8000/api/files/ \
+     -H 'Authorization: Token YOUR_TOKEN' \
      -H 'Content-Type: application/json' \
      -d '{"original_name":"policy.pdf","size_bytes":1330,"title":"My policy"}'
    ```
@@ -321,7 +282,8 @@ in `uploaded_by`; existing anonymous uploads keep their null uploader.
 3. Confirm completion:
 
    ```sh
-   curl --fail -X POST http://localhost:8000/api/files/FILE_ID/complete/
+   curl --fail -X POST http://localhost:8000/api/files/FILE_ID/complete/ \
+     -H 'Authorization: Token YOUR_TOKEN'
    ```
 
 Completion checks the uploaded size, then copies the object inside MinIO to
@@ -405,7 +367,6 @@ Tokens are database-backed, one per user, and do not expire automatically.
 They can be revoked by deleting their entry in Django admin. Use HTTPS for
 deployed login and API endpoints. Admin users can delete files; Editors can upload and update; Viewers can read
 and download. Permissions apply across files, without per-owner restrictions.
-
 
 ## Soft deletion and retention
 
