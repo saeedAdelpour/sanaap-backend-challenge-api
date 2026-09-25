@@ -1,4 +1,5 @@
 from django.conf import settings
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, status
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.decorators import action
@@ -6,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
+from sanaap_backend_challenge_api.documents.filters import FileFilter
 from sanaap_backend_challenge_api.documents.models import File
 from sanaap_backend_challenge_api.documents.permissions import FilePermission
 from sanaap_backend_challenge_api.documents.serializers import (
@@ -30,6 +32,8 @@ class FileViewSet(mixins.CreateModelMixin, ReadOnlyModelViewSet):
     """Token-authenticated metadata and presigned uploads. soft deletion."""
 
     serializer_class = FileSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = FileFilter
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated, FilePermission]
 
