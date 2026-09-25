@@ -6,6 +6,15 @@ selected in `.python-version`. Application code lives in
 
 ## Docker setup
 
+Builds require BuildKit and the Docker Buildx plugin (`docker buildx version`).
+You can enable BuildKit explicitly with `export DOCKER_BUILDKIT=1` in your shell.
+Dependencies are installed in a separate cached layer before source code and
+README are copied. Both `uv sync` steps share a persistent download cache, so
+changes to `pyproject.toml` or `uv.lock` can reuse cached packages. The download
+cache stays outside the image; installed dependencies remain in `/app/.venv`.
+The first build populates the cache. Avoid `--no-cache` for normal rebuilds so
+Docker can also reuse its completed layers.
+
 Copy `.env.example` to `.env` if you do not already have one. Set
 `POSTGRES_PASSWORD`, `MINIO_SECRET_KEY` (at least eight characters), and a unique
 `DJANGO_SECRET_KEY`. Keep `127.0.0.1` in `DJANGO_ALLOWED_HOSTS` for health checks.
