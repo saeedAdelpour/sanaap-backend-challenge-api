@@ -5,10 +5,19 @@ from sanaap_backend_challenge_api.documents.models import File, FileReplacement
 
 @admin.register(File)
 class FileAdmin(admin.ModelAdmin):
-    list_display = ("title", "status", "uploaded_by", "size_bytes", "created_at")
+    list_display = (
+        "title",
+        "status",
+        "uploaded_by",
+        "size_bytes",
+        "created_at",
+        "deleted_at",
+        "deleted_by",
+        "purged_at",
+    )
     list_filter = ("status", "content_type")
     search_fields = ("title", "original_name")
-    list_select_related = ("uploaded_by",)
+    list_select_related = ("uploaded_by", "deleted_by")
     readonly_fields = (
         "id",
         "title",
@@ -20,7 +29,16 @@ class FileAdmin(admin.ModelAdmin):
         "status",
         "created_at",
         "updated_at",
+        "deleted_at",
+        "deleted_by",
+        "purged_at",
     )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(FileReplacement)

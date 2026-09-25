@@ -45,12 +45,15 @@ def initiate_upload(*, original_name, size_bytes, uploaded_by, title=None):
 @transaction.atomic
 def complete_upload(document_id):
     # Serialize completion requests so a ready file cannot be replaced.
-    document = File.objects.select_for_update().get(pk=document_id)
+    document = get_object_or_404(
+        File.objects.select_for_update(), pk=document_id, deleted_at__isnull=True
+    )
     if document.status == File.Status.READY:
         return document
     if document.status != File.Status.PENDING:
         raise ValidationError("This upload cannot be completed.")
 
+    _check_completion_deadline(document.created_at)
     client = get_minio_client()
     bucket = settings.MINIO_BUCKET
     try:
@@ -82,8 +85,11 @@ def complete_upload(document_id):
     return document
 
 
+@transaction.atomic
 def get_download_url(document_id):
-    document = File.objects.get(pk=document_id)
+    document = get_object_or_404(
+        File.objects.select_for_update(), pk=document_id, deleted_at__isnull=True
+    )
     if document.status != File.Status.READY:
         raise ValidationError("This download cannot be completed.")
 
@@ -113,7 +119,9 @@ class ReplacementConflict(APIException):
 
 @transaction.atomic
 def update_file_metadata(document_id, **changes):
-    document = File.objects.select_for_update().get(pk=document_id)
+    document = get_object_or_404(
+        File.objects.select_for_update(), pk=document_id, deleted_at__isnull=True
+    )
     for field in ("title", "original_name"):
         if field in changes:
             setattr(document, field, changes[field])
@@ -124,7 +132,9 @@ def update_file_metadata(document_id, **changes):
 
 @transaction.atomic
 def initiate_replacement(document_id, *, original_name, size_bytes):
-    document = File.objects.select_for_update().get(pk=document_id)
+    document = get_object_or_404(
+        File.objects.select_for_update(), pk=document_id, deleted_at__isnull=True
+    )
     if document.status != File.Status.READY:
         raise ValidationError("Only ready files can be replaced.")
     replacement = FileReplacement(
@@ -147,7 +157,9 @@ def initiate_replacement(document_id, *, original_name, size_bytes):
 
 @transaction.atomic
 def complete_replacement(document_id, *, replacement_id):
-    document = File.objects.select_for_update().get(pk=document_id)
+    document = get_object_or_404(
+        File.objects.select_for_update(), pk=document_id, deleted_at__isnull=True
+    )
     replacement = get_object_or_404(
         FileReplacement, pk=replacement_id, file_id=document_id
     )
@@ -159,6 +171,7 @@ def complete_replacement(document_id, *, replacement_id):
     ):
         raise ReplacementConflict
 
+    _check_completion_deadline(replacement.created_at)
     client = get_minio_client()
     bucket = settings.MINIO_BUCKET
     final_key = f"documents/{document.pk.hex}/{replacement.pk.hex}"
@@ -198,3 +211,53 @@ def complete_replacement(document_id, *, replacement_id):
     replacement.completed_at = timezone.now()
     replacement.save(update_fields=["completed_at"])
     return document
+
+
+def _check_completion_deadline(created_at):
+    if timezone.now() >= created_at + timedelta(
+        seconds=settings.FILE_UPLOAD_COMPLETION_TTL
+    ):
+        raise ValidationError(
+            "Upload completion deadline has passed. Start a new upload."
+        )
+
+
+@transaction.atomic
+def soft_delete_file(document_id, *, deleted_by):
+    document = get_object_or_404(
+        File.objects.select_for_update(), pk=document_id, deleted_at__isnull=True
+    )
+    document.deleted_at = timezone.now()
+    document.deleted_by = deleted_by
+    document.save(update_fields=["deleted_at", "deleted_by", "updated_at"])
+    return document
+
+
+@transaction.atomic
+def purge_deleted_file(document_id, *, cutoff, client):
+    """Retry-safe for unversioned buckets; preserve metadata as an audit record."""
+    document = File.objects.select_for_update().get(pk=document_id)
+    if (
+        document.deleted_at is None
+        or document.deleted_at > cutoff
+        or document.purged_at
+    ):
+        return False
+    keys = {document.storage_key, f"documents/{document.pk.hex}"}
+    for replacement in document.replacements.all():
+        keys.update(
+            {
+                replacement.storage_key,
+                replacement.previous_storage_key,
+                f"documents/{document.pk.hex}/{replacement.pk.hex}",
+            }
+        )
+    for key in sorted(keys):
+        try:
+            client.remove_object(settings.MINIO_BUCKET, key)
+        except S3Error as exc:
+            if exc.code not in {"NoSuchKey", "NoSuchObject"}:
+                raise
+    document.purged_at = timezone.now()
+    document.save(update_fields=["purged_at", "updated_at"])
+    return True
