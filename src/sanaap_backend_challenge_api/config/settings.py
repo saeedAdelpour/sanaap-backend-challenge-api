@@ -132,7 +132,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -159,6 +159,11 @@ MINIO_ACCESS_KEY = config("MINIO_ACCESS_KEY", default="")
 MINIO_SECRET_KEY = config("MINIO_SECRET_KEY", default="")
 MINIO_BUCKET = config("MINIO_BUCKET", default="insurance-documents")
 MINIO_SECURE = config("MINIO_SECURE", default=True, cast=bool)
+
+# Public signing endpoint can differ from the internal Docker service address.
+MINIO_PUBLIC_ENDPOINT = config("MINIO_PUBLIC_ENDPOINT", default=MINIO_ENDPOINT)
+MINIO_PUBLIC_SECURE = config("MINIO_PUBLIC_SECURE", default=MINIO_SECURE, cast=bool)
+MINIO_REGION = config("MINIO_REGION", default="us-east-1")
 
 MINIO_UPLOAD_URL_TTL = config("MINIO_UPLOAD_URL_TTL", default=300, cast=int)
 if not 1 <= MINIO_UPLOAD_URL_TTL <= 604800:

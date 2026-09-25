@@ -4,6 +4,68 @@ Django 5.2 LTS and Django REST framework, managed with uv. Python 3.11 is
 selected in `.python-version`. Application code lives in
 `src/sanaap_backend_challenge_api/` and uv installs it as an editable package.
 
+## Docker setup
+
+Copy `.env.example` to `.env` if you do not already have one. Set
+`POSTGRES_PASSWORD`, `MINIO_SECRET_KEY` (at least eight characters), and a unique
+`DJANGO_SECRET_KEY`. Keep `127.0.0.1` in `DJANGO_ALLOWED_HOSTS` for health checks.
+Docker Compose creates a PostgreSQL database using `POSTGRES_DB` and
+`POSTGRES_USER`; it does not import an existing external database.
+
+```sh
+docker compose up -d --build --wait
+docker compose exec backend python manage.py init_minio --configure-upload-lifecycle
+docker compose exec backend python manage.py createsuperuser
+```
+
+Open http://localhost:8000/api/health/ or http://localhost:8000/admin/.
+Nginx forwards requests to Gunicorn and serves collected static files.
+The backend runs as a non-root user, applies migrations and collects static files
+before Gunicorn starts. PostgreSQL and MinIO must be healthy before the backend
+starts; Nginx waits for the backend health check. The health endpoint checks
+liveness only, not ongoing database or storage availability.
+
+`HTTP_PORT` changes the published API port; the example sets `HTTP_BIND_ADDRESS`
+to `127.0.0.1`. `NGINX_PORT=80` sets the container port, Nginx listener, and
+health-check port together. `HTTP_PROTOCOL=tcp` selects the transport; keep TCP
+for this HTTP configuration. Nginx generates its config from
+`docker/nginx/default.conf.template` at startup. Only Nginx and the existing local MinIO ports are published;
+PostgreSQL and Gunicorn are accessible within the Compose network.
+PostgreSQL, the backend, MinIO, and Nginx load all service environment variables from
+`.env` using `env_file`, with no inline `environment` overrides. The example uses
+`DJANGO_DEBUG=false`, `POSTGRES_HOST=postgres`, and `MINIO_ENDPOINT=minio:9000`
+for Docker networking. MinIO's `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` expand
+from the application credentials in the same file, so edit `MINIO_ACCESS_KEY`
+and `MINIO_SECRET_KEY` to keep them synchronized. All four services receive the
+file's variables. Your `.env` is supplied at runtime and excluded from the image. Dependencies are installed from `uv.lock` using
+[uv's Docker workflow](https://docs.astral.sh/uv/guides/integration/docker/).
+
+MinIO remains available at http://localhost:9000 and its console at
+http://localhost:9001. `MINIO_ENDPOINT=minio:9000` is used internally, while
+`MINIO_PUBLIC_ENDPOINT=localhost:9000` is used to sign browser-accessible URLs.
+Signing uses `MINIO_REGION` (default `us-east-1`); match it to your storage region.
+For remote access, configure a client-reachable MinIO address, its matching
+`MINIO_PUBLIC_SECURE` setting, and published ports or TLS routing. Also configure
+Django's allowed hosts and HTTPS termination before deploying publicly.
+Do not rewrite signed URL hostnames after signing.
+
+Useful commands:
+
+```sh
+docker compose logs -f backend nginx
+docker compose exec backend python manage.py check
+docker compose exec backend python manage.py test sanaap_backend_challenge_api
+docker compose exec backend python manage.py purge_deleted_files
+docker compose down
+```
+
+Schedule `docker compose exec -T backend python manage.py purge_deleted_files`
+separately for retention cleanup. Database, object storage, and static files use
+named volumes and survive `docker compose down`. **`docker compose down -v`
+deletes these volumes and their data.** Database credentials initialize a new
+volume only; changing `.env` does not change an existing database role/password.
+Rebuild with `docker compose up -d --build --wait` after changing code or dependencies.
+
 ## Local setup
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
@@ -12,7 +74,9 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 uv sync --locked
 cp .env.example .env
 uv run pre-commit install
-# Set POSTGRES_* in .env to match your PostgreSQL database and role.
+# Set POSTGRES_* in .env to match your external PostgreSQL database and role.
+# For host-based Django, set POSTGRES_HOST=localhost and MINIO_ENDPOINT=localhost:9000.
+# Optionally set DJANGO_DEBUG=true for local development.
 uv run python manage.py migrate
 uv run python manage.py createsuperuser
 uv run python manage.py runserver
@@ -30,9 +94,10 @@ Schedule the cleanup command described below separately from the web server.
 ## Database
 
 Configure `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` in `.env`.
-The server defaults to `localhost:5432`; override `POSTGRES_HOST` and
-`POSTGRES_PORT` as needed. The database and login role must already exist,
-and the role must have permission to create tables in the database schema.
+The Docker example uses `postgres:5432`; for host-based Django, set
+`POSTGRES_HOST=localhost` and adjust `POSTGRES_PORT` as needed. Compose creates
+the database and role. For an external PostgreSQL service, create them yourself
+and give the role permission to create tables in the database schema.
 
 Run `uv run python manage.py migrate` to initialize the database.
 Existing SQLite data is not automatically copied to PostgreSQL.
@@ -165,8 +230,8 @@ Apply the schema with `uv run python manage.py migrate`.
 
 ## Local MinIO
 
-MinIO runs in Docker while Django continues to run with uv. PostgreSQL remains
-the existing external service. The pinned community image is for local development;
+For the host-based setup, run only MinIO in Docker and run Django with uv
+against your external PostgreSQL service. The full container setup is above. The pinned community image is for local development;
 the upstream community repository is archived, so reassess the distribution
 before production deployment.
 
@@ -196,9 +261,9 @@ these credentials or grant anonymous access to insurance documents.
 Data persists in the `minio_data` named volume across container restarts and
 `docker compose down`. `docker compose down -v` deletes that stored data.
 
-When Django is containerized later, use `MINIO_ENDPOINT=minio:9000` on the
-Compose network. The File model already stores the object key; bucket and
-endpoint belong in settings. Downloads use presigned URLs.
+The Docker backend uses `MINIO_ENDPOINT=minio:9000` on the Compose network
+and `MINIO_PUBLIC_ENDPOINT` for presigned uploads and downloads. The File model
+stores the object key; bucket and endpoints belong in settings.
 
 ## Presigned uploads
 
@@ -244,8 +309,8 @@ records are retained; expired uploads cannot be completed.
 Apply migrations before using the API:
 `uv run python manage.py migrate`.
 
-`MINIO_ENDPOINT` must be reachable by the client because it appears in the
-signed URL. Do not rewrite the URL hostname after signing. Browser frontends
+`MINIO_PUBLIC_ENDPOINT` (defaulting to `MINIO_ENDPOINT` outside Compose) must
+be reachable by the client because it appears in the signed URL. Do not rewrite the URL hostname after signing. Browser frontends
 on another origin may also need MinIO CORS configuration.
 
 ## Modify an existing file

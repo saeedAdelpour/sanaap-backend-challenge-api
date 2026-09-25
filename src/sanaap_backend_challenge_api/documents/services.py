@@ -31,7 +31,7 @@ def initiate_upload(*, original_name, size_bytes, uploaded_by, title=None):
         uploaded_by=uploaded_by,
     )
     try:
-        url = get_minio_client().presigned_put_object(
+        url = get_minio_client(public=True).presigned_put_object(
             settings.MINIO_BUCKET,
             document.storage_key,
             expires=timedelta(seconds=settings.MINIO_UPLOAD_URL_TTL),
@@ -94,7 +94,7 @@ def get_download_url(document_id):
         raise ValidationError("This download cannot be completed.")
 
     try:
-        url = get_minio_client().presigned_get_object(
+        url = get_minio_client(public=True).presigned_get_object(
             settings.MINIO_BUCKET,
             document.storage_key,
             expires=timedelta(seconds=settings.MINIO_UPLOAD_URL_TTL),
@@ -145,7 +145,7 @@ def initiate_replacement(document_id, *, original_name, size_bytes, replaced_by)
         replaced_by=replaced_by,
     )
     try:
-        url = get_minio_client().presigned_put_object(
+        url = get_minio_client(public=True).presigned_put_object(
             settings.MINIO_BUCKET,
             replacement.storage_key,
             expires=timedelta(seconds=settings.MINIO_UPLOAD_URL_TTL),
