@@ -100,6 +100,26 @@ default; the liveness probe is explicitly public. Session authentication
 requires CSRF protection for unsafe requests. Document endpoints use token authentication and group permissions.
 Schedule the cleanup command described below separately from the web server.
 
+## Swagger / OpenAPI
+
+- Interactive Swagger UI: http://localhost:8000/api/docs/
+- OpenAPI schema: http://localhost:8000/api/schema/
+
+Documentation is public; file operations still require a token and the appropriate
+permissions. In Swagger, execute `POST /api/login/` with your username and password,
+then click **Authorize** and enter `Token YOUR_TOKEN` (including the prefix).
+You can now try the file endpoints. Upload raw bytes to the returned MinIO URL
+separately, then use the completion endpoint in Swagger.
+
+Swagger assets are bundled locally and served through Django static files
+(Nginx in Docker). Rebuild Docker after installing the new dependencies.
+
+Validate or export the schema:
+
+```sh
+uv run python manage.py spectacular --file /tmp/schema.yaml --validate --fail-on-warn
+```
+
 ## Database
 
 Configure `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` in `.env`.

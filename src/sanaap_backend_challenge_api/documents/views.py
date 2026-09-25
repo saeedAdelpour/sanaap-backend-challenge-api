@@ -10,6 +10,7 @@ from rest_framework.viewsets import ReadOnlyModelViewSet
 from sanaap_backend_challenge_api.documents.filters import FileFilter
 from sanaap_backend_challenge_api.documents.models import File
 from sanaap_backend_challenge_api.documents.permissions import FilePermission
+from sanaap_backend_challenge_api.documents.schema import file_schema
 from sanaap_backend_challenge_api.documents.serializers import (
     FileReplacementCompleteSerializer,
     FileReplacementSerializer,
@@ -28,6 +29,7 @@ from sanaap_backend_challenge_api.documents.services import (
 )
 
 
+@file_schema
 class FileViewSet(mixins.CreateModelMixin, ReadOnlyModelViewSet):
     """Token-authenticated metadata and presigned uploads. soft deletion."""
 

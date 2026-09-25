@@ -45,6 +45,8 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "drf_spectacular",
+    "drf_spectacular_sidecar",
     "django_filters",
     "rest_framework.authtoken",
     "sanaap_backend_challenge_api.documents.apps.DocumentsConfig",
@@ -143,6 +145,7 @@ ASGI_APPLICATION = "sanaap_backend_challenge_api.config.asgi.application"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 REST_FRAMEWORK = {
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
     ],
@@ -189,3 +192,25 @@ if MINIO_STAGING_EXPIRATION_DAYS * 86400 <= max(
     raise ImproperlyConfigured(
         "Staging expiration must exceed upload and completion lifetimes."
     )
+
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Sanaap Insurance Documents API",
+    "DESCRIPTION": (
+        "Obtain a token from /api/login/, then authorize with `Token YOUR_TOKEN`. "
+        "Viewers can read and download; Editors can also upload and update; "
+        "Admins can also delete. Upload bytes directly to the presigned MinIO "
+        "URL using PUT, then call the completion endpoint. Do not send your "
+        "Django token to MinIO."
+    ),
+    "VERSION": "1.0.0",
+    "ENUM_NAME_OVERRIDES": {
+        "FileStatusEnum": "sanaap_backend_challenge_api.documents.schema.FILE_STATUS_CHOICES",
+        "HealthStatusEnum": ["ok"],
+    },
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SERVE_AUTHENTICATION": [],
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+}
