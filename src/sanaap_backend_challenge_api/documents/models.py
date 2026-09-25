@@ -32,6 +32,15 @@ class File(models.Model):
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.PENDING
     )
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="deleted_files",
+        null=True,
+        blank=True,
+    )
+    purged_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -162,3 +162,24 @@ MINIO_SECURE = config("MINIO_SECURE", default=True, cast=bool)
 MINIO_UPLOAD_URL_TTL = config("MINIO_UPLOAD_URL_TTL", default=300, cast=int)
 if not 1 <= MINIO_UPLOAD_URL_TTL <= 604800:
     raise ImproperlyConfigured("MINIO_UPLOAD_URL_TTL must be 1–604800 seconds.")
+
+
+FILE_RETENTION_DAYS = config("FILE_RETENTION_DAYS", default=30, cast=int)
+FILE_UPLOAD_COMPLETION_TTL = config(
+    "FILE_UPLOAD_COMPLETION_TTL", default=86400, cast=int
+)
+MINIO_STAGING_EXPIRATION_DAYS = config(
+    "MINIO_STAGING_EXPIRATION_DAYS", default=8, cast=int
+)
+if FILE_RETENTION_DAYS < 1 or FILE_RETENTION_DAYS * 86400 <= MINIO_UPLOAD_URL_TTL:
+    raise ImproperlyConfigured("File retention must exceed the upload URL lifetime.")
+if FILE_UPLOAD_COMPLETION_TTL < MINIO_UPLOAD_URL_TTL:
+    raise ImproperlyConfigured(
+        "Upload completion TTL must cover the upload URL lifetime."
+    )
+if MINIO_STAGING_EXPIRATION_DAYS * 86400 <= max(
+    FILE_UPLOAD_COMPLETION_TTL, MINIO_UPLOAD_URL_TTL
+):
+    raise ImproperlyConfigured(
+        "Staging expiration must exceed upload and completion lifetimes."
+    )

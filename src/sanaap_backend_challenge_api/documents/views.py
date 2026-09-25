@@ -21,12 +21,13 @@ from sanaap_backend_challenge_api.documents.services import (
     get_download_url,
     initiate_replacement,
     initiate_upload,
+    soft_delete_file,
     update_file_metadata,
 )
 
 
 class FileViewSet(mixins.CreateModelMixin, ReadOnlyModelViewSet):
-    """Token-authenticated metadata and presigned uploads. Deletion is not implemented."""
+    """Token-authenticated metadata and presigned uploads. soft deletion."""
 
     serializer_class = FileSerializer
     authentication_classes = [TokenAuthentication]
@@ -66,7 +67,11 @@ class FileViewSet(mixins.CreateModelMixin, ReadOnlyModelViewSet):
         return Response(FileSerializer(document).data)
 
     def get_queryset(self):
-        return File.objects.all()
+        return File.objects.filter(deleted_at__isnull=True)
+
+    def destroy(self, request, *args, **kwargs):
+        soft_delete_file(self.get_object().pk, deleted_by=request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["get"], url_path="download")
     def download(self, request, *args, **kwargs):

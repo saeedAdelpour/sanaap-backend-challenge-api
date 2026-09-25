@@ -28,14 +28,14 @@ class FileAPITests(APITestCase):
             size_bytes=4,
         )
 
-    def test_authenticated_metadata_and_no_delete(self):
+    def test_authenticated_metadata_and_delete_denied_for_editor(self):
         response = self.client.get(reverse("file-list"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 1)
         self.assertNotIn("storage_key", response.data["results"][0])
         url = reverse("file-detail", args=[self.document.pk])
         self.assertEqual(self.client.get(url).status_code, 200)
-        self.assertEqual(self.client.delete(url).status_code, 405)
+        self.assertEqual(self.client.delete(url).status_code, 403)
         self.assertEqual(self.client.patch(url, {}, format="json").status_code, 200)
 
     @patch("sanaap_backend_challenge_api.documents.services.get_minio_client")
@@ -315,6 +315,7 @@ class TokenAuthenticationTests(APITestCase):
             ("post", reverse("file-list")),
             ("get", reverse("file-detail", args=[file_id])),
             ("patch", reverse("file-detail", args=[file_id])),
+            ("delete", reverse("file-detail", args=[file_id])),
             ("get", reverse("file-download", args=[file_id])),
             ("post", reverse("file-complete", args=[file_id])),
             ("post", reverse("file-replace", args=[file_id])),

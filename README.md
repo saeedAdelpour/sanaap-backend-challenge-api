@@ -24,8 +24,8 @@ uv run python manage.py runserver
 
 PostgreSQL 14+ is required. API views require authentication by
 default; the liveness probe is explicitly public. Session authentication
-requires CSRF protection for unsafe requests. Document deletion,
-RBAC, background jobs, and application deployment configuration are not implemented yet.
+requires CSRF protection for unsafe requests. Document endpoints use token authentication and group permissions.
+Schedule the cleanup command described below separately from the web server.
 
 ## Database
 
@@ -155,11 +155,11 @@ future upload service; metadata alone does not validate a file.
 - `GET /api/files/`: paginated file metadata.
 - `GET /api/files/{uuid}/`: individual file metadata.
 
-Both endpoints require a DRF token. Authenticated users can currently access all file metadata; role checks are not implemented.
+Both endpoints require a DRF token. Users with the view permission can access file metadata.
 Storage keys are excluded from API responses.
 
 The Django admin registration is read-only until storage-aware write services
-exist. Downloads, updates, and deletion remain unimplemented. No policy or claim relationship is assumed yet.
+exist. Downloads, metadata updates, replacement, and soft deletion use API services. No policy or claim relationship is assumed yet.
 
 Apply the schema with `uv run python manage.py migrate`.
 
@@ -198,12 +198,12 @@ Data persists in the `minio_data` named volume across container restarts and
 
 When Django is containerized later, use `MINIO_ENDPOINT=minio:9000` on the
 Compose network. The File model already stores the object key; bucket and
-endpoint belong in settings. Downloads are still to be implemented.
+endpoint belong in settings. Downloads use presigned URLs.
 
 ## Presigned uploads
 
 File endpoints require token authentication (see below). The bucket remains
-private. Delete is not implemented. New uploads record the authenticated user
+private. Deletion is described below. New uploads record the authenticated user
 in `uploaded_by`; existing anonymous uploads keep their null uploader.
 
 1. Request an upload URL:
@@ -237,10 +237,9 @@ the staging object, not the ready document. Missing objects or size mismatches
 return 400; storage failures return 503 and can be retried.
 
 The declared size is validated on completion, not enforced during the PUT.
-This single-object flow supports up to 5 GiB. Content inspection and download
-endpoints are not implemented. Content type remains generic.
-Staging objects under `uploads/` are retained for now; lifecycle cleanup and
-abandoned pending-record cleanup remain follow-up work.
+This single-object flow supports up to 5 GiB. Content inspection is not implemented. Content type remains generic.
+Staging cleanup is configured separately below. Abandoned pending database
+records are retained; expired uploads cannot be completed.
 
 Apply migrations before using the API:
 `uv run python manage.py migrate`.
@@ -277,9 +276,10 @@ and file ID. Repeated completion does not reapply a replacement.
 A competing replacement completed in the meantime causes a 409; start a fresh
 replacement. An ID belonging to another file returns 404.
 
-These endpoints require token authentication, matching the other file endpoints. Deletion remains unavailable. Old content and staging objects are
-retained; existing download URLs may continue serving the old content until
-expiry. Cleanup will be handled separately.
+These endpoints require token authentication. Old content is retained until the
+file is deleted and its retention window passes. Existing download URLs may
+continue serving old content until expiry. Temporary uploads have separate
+lifecycle cleanup.
 
 ## Token authentication
 
@@ -309,5 +309,62 @@ MinIO presigned URL; that URL already authorizes the transfer.
 
 Tokens are database-backed, one per user, and do not expire automatically.
 They can be revoked by deleting their entry in Django admin. Use HTTPS for
-deployed login and API endpoints. Authentication identifies users; role and
-file-level access restrictions are still pending.
+deployed login and API endpoints. Admin users can delete files; Editors can upload and update; Viewers can read
+and download. Permissions apply across files, without per-owner restrictions.
+
+
+## Soft deletion and retention
+
+`DELETE /api/files/{id}/` requires a token with `documents.destroy_file`
+(the Admin group has this permission). It returns 204 and records `deleted_at`
+and `deleted_by` without contacting MinIO. Deleted files disappear from all file
+endpoints; subsequent requests, including another DELETE, return 404. Existing
+presigned download URLs remain usable until expiry (300 seconds by default).
+Upload completion and replacement cannot reactivate deleted files.
+
+Active documents never expire under this application's cleanup policy.
+`FILE_RETENTION_DAYS=30` controls retention **from API deletion**, not upload.
+Changing this setting also changes the cutoff for previously deleted files.
+After the window, cleanup removes the current and previous replacement objects,
+including incomplete replacement copies, and records `purged_at`. Database
+metadata stays for auditing. Restoration is not exposed by this API.
+
+Apply the migration and configure staging cleanup:
+
+```sh
+uv run python manage.py migrate
+uv run python manage.py init_minio --configure-upload-lifecycle
+```
+
+The latter installs/replaces only the `sanaap-staging-uploads` lifecycle rule,
+filtered to `uploads/`, preserving other rules. Review any existing bucket rules
+separately: an independently configured rule could still expire active documents.
+Staging objects expire after `MINIO_STAGING_EXPIRATION_DAYS=8` days from creation.
+New uploads and replacements must complete within `FILE_UPLOAD_COMPLETION_TTL=86400`
+seconds of initiation; already completed requests remain idempotent. Lifecycle
+expiration must be longer than both the completion deadline and upload URL TTL.
+MinIO processes lifecycle expiration asynchronously. Original staging keys are
+cleaned by this rule, including keys no longer referenced after completion.
+
+Schedule the following command hourly using cron, a systemd timer, or your
+platform's scheduler (use absolute paths and the configured application environment):
+
+```sh
+uv run python manage.py purge_deleted_files
+```
+
+Example crontab, replacing the installation paths:
+
+```cron
+0 * * * * cd /path/to/sanaap-backend-challenge-api && /path/to/uv run python manage.py purge_deleted_files
+```
+
+Cleanup is retry-safe: missing objects count as success, storage failures leave
+`purged_at` unset, other eligible files are still processed, and the command exits
+unsuccessfully so monitoring can detect the failure. Overlapping workers serialize
+on each file's database lock. Bytes are removed on the first successful cleanup
+run after the retention deadline, rather than at an exact instant.
+
+Both cleanup and staging lifecycle setup require an unversioned bucket and refuse
+buckets with enabled or suspended versioning. Version-aware deletion is not
+implemented. No scheduler is started by Django; deployment must arrange the job.
